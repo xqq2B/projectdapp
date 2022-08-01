@@ -3,9 +3,9 @@ import { faker } from "@faker-js/faker";
 import {useMoralis} from "react-moralis";
 import {SOCIAL_DAPP_ADDRESS, SOCIAL_DAPP_ABI} from "../lib/constants";
 import { ethers } from "ethers";
+import {client} from "../lib/sanity";
+import { useRouter } from "next/router";
 
-//import{client} from "../lib/sanityClient";
-//import { useRouter } from "next/router";
 
 export const SocialDappContext = createContext();
 
@@ -15,7 +15,6 @@ if (typeof window !== 'undefined') {
 }
 
 
-//////////////swap//////////////////////
 const getEthereumContract = () => {
   const provider = new ethers.providers.Web3Provider(ethereum);
   const signer = provider.getSigner();
@@ -27,7 +26,10 @@ const getEthereumContract = () => {
 
   return Social_Dapp_Contract;
 }
-///////////////////////////////////////
+
+
+
+
 export const SocialDappProvider = ({ children }) => {
   const { authenticate, isAuthenticated, user, Moralis } = useMoralis()
   const [cardsData, setCardsData] = useState([])
@@ -39,6 +41,9 @@ export const SocialDappProvider = ({ children }) => {
     addressTo:'',
     amount:'',
   })
+
+  const router = useRouter();
+
 
   useEffect(() => {
     checkWalletConnection()
@@ -57,7 +62,7 @@ export const SocialDappProvider = ({ children }) => {
       if (isAuthenticated) {
         const address = user.get('ethAddress')
         setCurrentAccount(address)
-        requestToCreateUserProfile(address, faker.name.findName())// name random or real
+        //requestToCreateUserProfile(address)//, faker.name.findName())// name random or real
       } else {
         setCurrentAccount('')
       }
@@ -72,7 +77,7 @@ export const SocialDappProvider = ({ children }) => {
 
     if (!isAuthenticated || !currentAccount) {
       try {
-        console.log('connecting to wallet')
+        //console.log('connecting to wallet')
         await authenticate({
           signingMessage: 'Log in using Moralis',
         })
@@ -85,7 +90,8 @@ export const SocialDappProvider = ({ children }) => {
 
   const disconnectWallet = async () => {
     await Moralis.User.logOut()
-    setCurrentAccount('')  
+    setCurrentAccount('');
+    //////isAuthenticated = true;
   }
 
   const handleRightSwipe = async (cardData, currentUserAddress) => {
@@ -136,22 +142,22 @@ export const SocialDappProvider = ({ children }) => {
     }
   }
 
-  const requestToCreateUserProfile = async (walletAddress, name) => {
-    try {
-      await fetch(`/api/createUser`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userWalletAddress: walletAddress,
-          name: name,
-        }),
-      })
-    } catch (error) {
-      console.error(error)
-    }
-  }
+  // const requestToCreateUserProfile = async (walletAddress/*, name*/) => {
+  //   try {
+  //     await fetch(`/api/createUser`, {
+  //       method: 'POST',
+  //       headers: {
+  //         'Content-Type': 'application/json',
+  //       },
+  //       body: JSON.stringify({
+  //         userWalletAddress: walletAddress,
+  //         //name: name,
+  //       }),
+  //     })
+  //   } catch (error) {
+  //     console.error(error)
+  //   }
+  // }
 
   const requestCurrentUserData = async walletAddress => {
     try {
@@ -187,14 +193,13 @@ const sendTransaction = async (
 ) => {
   try {
       if(!metamask) return alert ('Metamask needed visit tutorials')
-      const { addressTo, amount } = formData///data_
+      const { addressTo, amount } = formData;
       const socialdappERC721Contract = getEthereumContract();
 
-      console.log('Testing: ',socialdappERC721Contract)
 
       const parsedAmount = ethers.utils.parseEther(amount)
 
-      await metamask.request({
+      const txHashMain = await metamask.request({
         method: 'eth_sendTransaction',
         params: [
           {
@@ -206,6 +211,7 @@ const sendTransaction = async (
         ],
       })
 
+
       const transactionHash = await socialdappERC721Contract.publishTransaction(
         addressTo,
         parsedAmount,
@@ -214,15 +220,68 @@ const sendTransaction = async (
       )
 
     setIsLoading(true)
-
-    await transactionHash.wait()
-
+        
+    await transactionHash.wait();
+   
     //db
+    await saveTransaction(
+      txHashMain,
+      transactionHash.hash,
+      amount,
+      connectedAccount,
+      addressTo,
+    )
+
+    setIsLoading(false)
+  } catch (error) {
+    console.log(error)
+  }
+}
+////////////sendMsg$$$/////////////////
+const sendTransactionMsg = async (
+  metamask = eth,
+  connectedAccount = currentAccount,
+) => {
+  try {
+    const DEPLOYED_CONTRACT='0xA8F519d37042d3033010460a3D0767E9a422b602';
+    const ASSETS_CONTRACT='0xE39082d3c341A8d5D89e849b12D61D918c7Cd120';
+    //console.log('deployed contract', DEPLOYED_CONTRACT)
+      if(!metamask) return alert ('Metamask needed visit tutorials')
+      const { addressTo, amount } = formData;
+      const socialdappERC721Contract = getEthereumContract();
+      const amountEarn = '0x7EF40'; // 520000 Gwei
+
+      const txHashMain = await metamask.request({
+        method: 'eth_sendTransaction',
+        params: [
+          {
+            from: connectedAccount,
+            to: ASSETS_CONTRACT,//addressTo,//DEPLOYED_CONTRACT,
+            gas: '0x7EF40', // 520000 Gwei
+            value: amountEarn,
+          },
+        ],
+      })
+
+
+      const transactionHash = await socialdappERC721Contract.publishTransaction(
+        DEPLOYED_CONTRACT,
+        amountEarn,
+        `Transferring ETH ${amountEarn} to ${DEPLOYED_CONTRACT}`,
+        'TRANSFER',
+      )
+
+    setIsLoading(true)
+        
+    await transactionHash.wait();
+   
+    //db from msg not need to be saved
     // await saveTransaction(
+    //   txHashMain,
     //   transactionHash.hash,
-    //   amount,
+    //   amountEarn,
     //   connectedAccount,
-    //   addressTo,
+    //   DEPLOYED_CONTRACT,
     // )
 
     setIsLoading(false)
@@ -231,14 +290,92 @@ const sendTransaction = async (
   }
 }
 
+//////////////////////////
+
 const handleChange = (e, name) => {
   setFormData(prevState => ({ ...prevState, [name]: e.target.value }))
 }
 //////////////////////////////////////////////////
 
+const saveTransaction = async (
+  txHashMain,
+  transactionHash,
+  amount,
+  fromAddress = currentAccount,
+  toAddress,
+) => {
+  const txDoc = {
+    _type: 'transactions',
+    _id: txHashMain,
+    fromAddress: fromAddress,
+    toAddress: toAddress,
+    timestamp: new Date(Date.now()).toISOString(),
+    txHashMain: txHashMain,
+    transactionHash: transactionHash,
+    amount: parseFloat(amount),
+  }
+
+  await client.createIfNotExists(txDoc);
+
+  await client
+    .patch(currentAccount)
+    .setIfMissing({ transactions: [] })
+    .insert('after', 'transactions[-1]', [
+      {
+        _key: txHashMain,
+        _ref: txHashMain,
+        _type: 'reference',
+      },
+    ])
+    .commit()
+
+  return
+}
+///////////msgs///////////////////////////////  
+const saveMessage = async (
+  name,
+  walletAddress,
+  msg,
+  addressTo
+) => {
+  const ids= Math.floor(Math.random()*100000000).toString();
+  const txDoc = {
+    _type: 'msg',
+    _id: ids,//id,key and ref are same, patch is targeting msg account
+    name: name,
+    walletAddress: walletAddress,
+    msg: msg,
+    timestamp: new Date(Date.now()).toISOString(),
+    toAddress: addressTo//cardsData[0].walletAddress,
+    //profileImage: profileImage,
+  }
+  await client.createIfNotExists(txDoc);
+
+  await client
+  .patch(addressTo)
+  .setIfMissing({ msg: [] })
+  .insert('after', 'msg[-1]', [
+    {
+      _key: ids,
+      _ref: ids,
+      _type: 'reference',
+    },
+  ])
+  .commit()
+
+return
+}
 
 
+//////////////////////////////
 
+useEffect(() => {
+  if (isLoading) {
+    router.push(`/?loading=${currentAccount}`)
+  } else {
+    router.push(`/`)
+  }
+}, [isLoading])
 
 
   return (
@@ -253,6 +390,11 @@ const handleChange = (e, name) => {
         sendTransaction,
         handleChange,
         formData,
+        isLoading,
+
+        saveMessage,
+        isAuthenticated,
+        sendTransactionMsg,
       }}
     >
       {children}
